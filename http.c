@@ -650,6 +650,10 @@ oss_error_t ohttp_setup_curl(struct ohttp_connection *conn, enum ohttp_method me
     x_easy_setopt(CURLOPT_URL, conn->request.url);
 
     switch (method) {
+        case OMETHOD_DELETE:
+            x_easy_setopt(CURLOPT_CUSTOMREQUEST, "DELETE");
+            break;
+            
         case OMETHOD_HEAD:
             x_easy_setopt(CURLOPT_NOBODY, 1);
             break;
