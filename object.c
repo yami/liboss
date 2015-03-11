@@ -1,6 +1,7 @@
 #include "object.h"
 
 #include "logging.h"
+#include "xml.h"
 
 #include <stdio.h>
 
@@ -10,7 +11,7 @@ oss_error_t oss_head_object(struct ohttp_connection *conn,
 {
     enum oss_error status = OSSE_OK;
 
-    if ((status = ohttp_request(conn, OMETHOD_HEAD, bucket, object, NULL)) != OSSE_OK) {
+    if ((status = ohttp_request(conn, OMETHOD_HEAD, bucket, object)) != OSSE_OK) {
         ologe("oss_head_object failed to request");
         return status;
     }
@@ -20,15 +21,10 @@ oss_error_t oss_head_object(struct ohttp_connection *conn,
     return status;
 }
 
-struct oss_fio {
-    struct oss_io super;
 
-    FILE *fh;
-};
-
-oss_i64 oss_fio_on_recv_body(char *p, size_t len, void *user_data)
+oss_i64 ohttp_fio_on_recv_body(char *p, size_t len, void *self)
 {
-    struct oss_fio *io = (struct oss_fio *) user_data;
+    struct ohttp_fio *io = (struct ohttp_fio *) self;
 
     if (fwrite(p, 1, len, io->fh) == len)
         return len;
@@ -36,9 +32,9 @@ oss_i64 oss_fio_on_recv_body(char *p, size_t len, void *user_data)
         return 0;
 }
 
-oss_i64 oss_fio_on_send_body(char *p, size_t len, void *user_data)
+oss_i64 ohttp_fio_on_send_body(char *p, size_t len, void *self)
 {
-    struct oss_fio *io = (struct oss_fio *) user_data;
+    struct ohttp_fio *io = (struct ohttp_fio *) self;
     size_t nr_read = fread(p, 1, len, io->fh);
 
     if (nr_read == len)
@@ -50,30 +46,30 @@ oss_i64 oss_fio_on_send_body(char *p, size_t len, void *user_data)
     return -1;
 }
 
-struct oss_io *oss_fread_create(FILE *fh)
+struct ohttp_fio *ohttp_fread_create(FILE *fh)
 {
-    struct oss_fio *io = (struct oss_fio *) calloc(1, sizeof(*io));
+    struct ohttp_fio *io = (struct ohttp_fio *) calloc(1, sizeof(*io));
 
     if (!io)
         return NULL;
 
-    io->super.on_send_body = &oss_fio_on_send_body;
+    io->super.on_send_body = &ohttp_fio_on_send_body;
     io->fh = fh;
 
-    return (struct oss_io *) io;
+    return io;
 }
 
-struct oss_io *oss_fwrite_create(FILE *fh)
+struct ohttp_fio *ohttp_fwrite_create(FILE *fh)
 {
-    struct oss_fio *io = calloc(1, sizeof(*io));
+    struct ohttp_fio *io = calloc(1, sizeof(*io));
 
     if (!io)
         return NULL;
 
-    io->super.on_recv_body = &oss_fio_on_recv_body;
+    io->super.on_recv_body = &ohttp_fio_on_recv_body;
     io->fh = fh;
 
-    return (struct oss_io *) io;
+    return io;
 }
 
 oss_error_t oss_get_object_to_file(struct ohttp_connection *conn,
@@ -82,7 +78,7 @@ oss_error_t oss_get_object_to_file(struct ohttp_connection *conn,
                                    const char *filename)
 {
     FILE *fh;
-    struct oss_io *io = NULL;
+    struct ohttp_fio *io = NULL;
     
     oss_error_t status = OSSE_OK;
     
@@ -92,15 +88,16 @@ oss_error_t oss_get_object_to_file(struct ohttp_connection *conn,
         return OSSE_OPEN_FILE;
     }
 
-    if (!(io = oss_fwrite_create(fh))) {
+    if (!(io = ohttp_fwrite_create(fh))) {
         ologe("failed to alloc for io");
         
         fclose(fh);
         return OSSE_NO_MEMORY;
     }
     
+    ohttp_set_io(conn, (struct ohttp_io *) io);
 
-    if ((status = ohttp_request(conn, OMETHOD_GET, bucket, object, io)) != OSSE_OK) {
+    if ((status = ohttp_request(conn, OMETHOD_GET, bucket, object)) != OSSE_OK) {
         ologe("failed to ohttp_request: %d", status);
     }
     
@@ -120,7 +117,7 @@ oss_error_t oss_put_object_from_file(struct ohttp_connection *conn,
     oss_i64 fsize;
     char fsize_str[256];
     
-    struct oss_io *io = NULL;
+    struct ohttp_fio *io = NULL;
     oss_error_t status = OSSE_OK;
 
     if (!(fh = fopen(filename, "rb"))) {
@@ -143,13 +140,15 @@ oss_error_t oss_put_object_from_file(struct ohttp_connection *conn,
         goto error;
     }
 
-    if (!(io = oss_fread_create(fh))) {
+    if (!(io = ohttp_fread_create(fh))) {
         ologe("failed to alloc stdio");
         status = OSSE_NO_MEMORY;
         goto error;
     }
+
+    ohttp_set_io(conn, (struct ohttp_io *) io);
     
-    if ((status = ohttp_request(conn, OMETHOD_PUT, bucket, object, io)) != OSSE_OK) {
+    if ((status = ohttp_request(conn, OMETHOD_PUT, bucket, object)) != OSSE_OK) {
         ologe("failed to ohttp_request: %d", status);
     }
 
@@ -158,8 +157,6 @@ oss_error_t oss_put_object_from_file(struct ohttp_connection *conn,
     return status;
 
 error:
-    free(io);
-
     if (fh)
         fclose(fh);
 
@@ -171,5 +168,44 @@ oss_error_t oss_delete_object(struct ohttp_connection *conn,
                               const char *bucket,
                               const char *object)
 {
-    return ohttp_request(conn, OMETHOD_DELETE, bucket, object, NULL);
+    return ohttp_request(conn, OMETHOD_DELETE, bucket, object);
+}
+
+
+oss_error_t init_upload(struct ohttp_connection *conn,
+                        const char *bucket,
+                        const char *object,
+                        char **upload_id)
+{
+    oss_error_t status = OSSE_OK;
+    struct ohttp_request *request = &conn->request;
+    struct ohttp_memio *io = NULL;
+
+    *upload_id = NULL;
+    
+    if (!oss_kvlist_append(&request->queries, "uploads", "")) {
+        ologe("failed to append uploads");
+        return OSSE_NO_MEMORY;
+    }
+
+    if (!(io = ohttp_memio_recv_create())) {
+        ologe("failed to create memout");
+        return OSSE_NO_MEMORY;
+    }
+
+    ohttp_set_io(conn, (struct ohttp_io *)io);
+
+    status = ohttp_request(conn, OMETHOD_POST, bucket, object);
+    if (status != OSSE_OK) {
+        ologe("failed to ohttp_request, status=%d", status);
+        return status;
+    }
+
+    status = parse_init_upload_response(io->recv_buffer.data, io->recv_buffer.n, upload_id);
+    if (status != OSSE_OK) {
+        ologe("failed to parse response");
+        return status;
+    }
+
+    return OSSE_OK;
 }

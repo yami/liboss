@@ -84,6 +84,43 @@ error:
 }
 
 static
+oss_error_t xml_get_doc_root(const char *buffer, int size, const char *root_name,
+                             xmlDoc **pdoc, xmlNode **proot)
+{
+    xmlDoc *doc = NULL;
+    xmlNode *root = NULL;
+    
+    *pdoc = NULL;
+    *proot = NULL;
+
+    doc = xmlReadMemory(buffer, size, NULL, NULL, 0);
+    if (!doc) {
+        ologe("failed to load xml from memory, root_name=%s", root_name);
+        return OSSE_XML;
+    }
+
+    root = xmlDocGetRootElement(doc);
+    if (!root) {
+        ologe("failed to get root node, root_name=%s", root_name);
+        
+        xmlFreeDoc(doc);
+        return OSSE_XML;
+    }
+
+    if (strcmp((const char *) root->name, root_name) != 0) {
+        ologe("root mismatch, xml_root=%s root_name=%s", root->name, root_name);
+
+        xmlFreeDoc(doc);
+        return OSSE_XML;
+    }
+
+    *pdoc = doc;
+    *proot = root;
+
+    return OSSE_OK;
+}
+
+static
 char *get_node_text(xmlNode *node)
 {
     char *text = NULL;
@@ -167,17 +204,6 @@ oss_error_t parse_kvlist(xmlNode *parent, struct parse_key_action *key_action_li
     return OSSE_OK;
 }
 
-static
-oss_error_t parse_get_service_owner(xmlNode *owner_node, struct oss_owner *owner)
-{
-    struct parse_key_action actions[] = {
-        {"ID",          action_get_string, &owner->id},
-        {"DisplayName", action_get_string, &owner->display_name},
-        {NULL}
-    };
-    parse_kvlist(owner_node, actions);
-}
-
 oss_error_t parse_get_service_buckets(xmlNode *buckets_node, struct oss_bucket **out_buckets, int *out_nr_buckets)
 {
     xmlNode *node = NULL;
@@ -187,7 +213,7 @@ oss_error_t parse_get_service_buckets(xmlNode *buckets_node, struct oss_bucket *
     int nr_buckets = count_child_elements(buckets_node, "Bucket");
 
     if (!nr_buckets)
-        return;
+        return OSSE_OK;
 
     if (!(buckets = (struct oss_bucket *) calloc(nr_buckets, sizeof(*buckets))))
         goto error;
@@ -232,24 +258,10 @@ oss_error_t parse_get_service_response(const char *buffer, int size, struct oss_
     xmlNode *root = NULL;
     xmlNode *node = NULL;
 
-    oss_error_t status = OSSE_XML;
+    oss_error_t status = xml_get_doc_root(buffer, size, "ListAllMyBucketsResult", &doc, &root);
 
-    doc = xmlReadMemory(buffer, size, NULL, NULL, 0);
-    if (!doc) {
-        ologe("failed to load xml from memory");
-        return OSSE_XML;
-    }
-
-    root = xmlDocGetRootElement(doc);
-    if (!root) {
-        ologe("failed to get root element");
-        goto error;
-    }
-
-    if (strcmp((const char *) root->name, "ListAllMyBucketsResult") != 0) {
-        ologe("not a valid response of get_service");
-        goto error;
-    }
+    if (status != OSSE_OK)
+        return status;
 
     for (node = root->children; node; node = node->next) {
         if (node->type != XML_ELEMENT_NODE)
@@ -277,5 +289,28 @@ oss_error_t parse_get_service_response(const char *buffer, int size, struct oss_
 error:
     xmlFreeDoc(doc);
     
+    return status;
+}
+
+oss_error_t parse_init_upload_response(const char *buffer, int size, char **upload_id)
+{
+    xmlDoc *doc = NULL;
+    xmlNode *root = NULL;
+    
+    oss_error_t status = xml_get_doc_root(buffer, size, "InitiateMultipartUploadResult", &doc, &root);
+
+    if (status != OSSE_OK)
+        return status;
+
+    {
+        struct parse_key_action actions[] = {
+            {"UploadId", action_get_string, upload_id},
+            {NULL}
+        };
+
+        if ((status = parse_kvlist(root, actions)) != OSSE_OK)
+            return status;
+    }
+
     return status;
 }

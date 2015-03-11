@@ -31,10 +31,6 @@ struct ohttp_response {
 };
 
 
-typedef oss_error_t (* ohttp_end_recv_body_t) (void *user_data);
-typedef oss_i64 (* ohttp_on_recv_body_t) (char *p, size_t len, void *user_data);
-typedef oss_i64 (* ohttp_on_send_body_t) (char *p, size_t len, void *user_data);
-
 struct ohttp_connection {
     /* public */
     char *region;
@@ -50,7 +46,7 @@ struct ohttp_connection {
     struct ohttp_request request;
     struct ohttp_response response;
 
-    struct oss_io *io;
+    struct ohttp_io *io;
 
     /* private */
     CURL* curl;
@@ -61,18 +57,30 @@ enum ohttp_method {
     OMETHOD_DELETE,
     OMETHOD_GET,
     OMETHOD_HEAD,
+    OMETHOD_POST,
     OMETHOD_PUT,
 };
 
-struct oss_io {
-    ohttp_on_recv_body_t on_recv_body;
-    ohttp_end_recv_body_t end_recv_bdoy;
+typedef oss_i64 (* ohttp_io_on_send_body_t) (char *p, size_t len, void *self);
+typedef oss_i64 (* ohttp_io_on_recv_body_t) (char *p, size_t len, void *self);
+
+typedef oss_error_t (* ohttp_io_end_recv_body_t) (void *self);
+
+typedef void (* ohttp_io_free_t) (void *self);
+
+struct ohttp_io {
+    ohttp_io_on_send_body_t on_send_body;
+    ohttp_io_on_recv_body_t  on_recv_body;
     
-    ohttp_on_send_body_t on_send_body;
+    ohttp_io_end_recv_body_t end_recv_body;
+
+    ohttp_io_free_t free;
 };
 
-struct oss_memio {
-    struct oss_io super;
+void ohttp_io_free(struct ohttp_io *io);
+
+struct ohttp_memio {
+    struct ohttp_io super;
 
     int send_offset;
     struct oss_buffer send_buffer;
@@ -80,8 +88,21 @@ struct oss_memio {
     struct oss_buffer recv_buffer;
 };
 
-struct oss_io *oss_memin_create(const char *ptr, int size);
-struct oss_io *oss_memout_create();
+struct ohttp_memio *ohttp_memio_send_create(const char *ptr, int size);
+struct ohttp_memio *ohttp_memio_recv_create();
+
+struct ohttp_fio {
+    struct ohttp_io super;
+
+    FILE *fh;
+};
+
+oss_i64 ohttp_fio_on_recv_body(char *p, size_t len, void *self);
+oss_i64 ohttp_fio_on_send_body(char *p, size_t len, void *self);
+
+struct ohttp_fio *ohttp_fread_create(FILE *fh);
+struct ohttp_fio *ohttp_fwrite_create(FILE *fh);
+
 
 oss_error_t ohttp_init();
 
@@ -91,9 +112,10 @@ void ohttp_connection_free(struct ohttp_connection *conn);
 oss_error_t ohttp_make_url(struct ohttp_connection *conn, const char *bucket, const char *object);
 oss_error_t ohttp_make_auth_header(struct ohttp_request *request, struct oss_credential *cred, const char *bucket, const char *object);
 
+void ohttp_set_io(struct ohttp_connection *conn, struct ohttp_io *io);
+
 oss_error_t ohttp_request(struct ohttp_connection *conn, 
-                             enum ohttp_method method,
-                             const char *bucket,
-                             const char *object,
-                             struct oss_io *io);
+                          enum ohttp_method method,
+                          const char *bucket,
+                          const char *object);
 #endif

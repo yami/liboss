@@ -11,23 +11,19 @@
 
 oss_error_t oss_get_service(struct ohttp_connection *conn, struct oss_service *service)
 {
-    struct oss_memio *io = NULL;
-    oss_error_t status = OSSE_UNKNOWN;
+    struct ohttp_memio *io = NULL;
+    oss_error_t status = OSSE_OK;
+
+    if (!(io = ohttp_memio_recv_create())) {
+        ologe("failed to create memio");
+        return OSSE_NO_MEMORY;
+    }
+
+    ohttp_set_io(conn, (struct ohttp_io *)io);
     
-    if ((status = ohttp_request(conn, OMETHOD_GET, NULL, NULL, oss_memout_create())) != OSSE_OK) {
+    if ((status = ohttp_request(conn, OMETHOD_GET, NULL, NULL)) != OSSE_OK) {
         ologe("failed to get service");
         return status;
-    }
-
-    if (conn->response.status != 200) {
-        ologe("http error: %s", conn->response.ebody);
-        return conn->response.status;
-    }
-
-    io = (struct oss_memio *) conn->io;
-    if (io->recv_buffer.n <= 0) {
-        ologe("empty recv buffer");
-        return OSSE_IMPOSSIBLE;
     }
 
     status = parse_get_service_response(io->recv_buffer.data, io->recv_buffer.n, service);
@@ -48,20 +44,27 @@ oss_error_t oss_get_bucket_acl(struct ohttp_connection *conn, const char *bucket
     oss_error_t status = OSSE_OK;
     
     struct ohttp_request *request = &conn->request;
-    struct oss_memio *io = NULL;
+    struct ohttp_memio *io = NULL;
 
     if (!oss_kvlist_append(&request->queries, "acl", "")) {
         ologe("failed to append acl");
         return OSSE_NO_MEMORY;
     }
 
-    status = ohttp_request(conn, OMETHOD_GET, bucket, NULL, oss_memout_create());
+    if (!(io = ohttp_memio_recv_create())) {
+        ologe("failed to create memio");
+        return OSSE_NO_MEMORY;
+    }
+
+    ohttp_set_io(conn, (struct ohttp_io *) io);
+
+    status = ohttp_request(conn, OMETHOD_GET, bucket, NULL);
     if (status != OSSE_OK) {
         ologe("failed to ohttp_request, status=%d", status);
         return status;
     }
 
-    io = (struct oss_memio *) conn->io;
+    io = (struct ohttp_memio *) conn->io;
     if (io->recv_buffer.n > 0) {
         ologe("recv buffer: %s\n", io->recv_buffer.data);
     }
@@ -70,11 +73,12 @@ oss_error_t oss_get_bucket_acl(struct ohttp_connection *conn, const char *bucket
 }
 
 
-/* TODO: MING: check result of oss_memin_create, oss_memout_create_ */
+/* TODO: MING: check result of ohttp_memin_create, ohttp_memout_create_ */
 oss_error_t oss_put_bucket_website(struct ohttp_connection *conn, const char *bucket, const char *index_file, const char *error_file)
 {
     oss_error_t status = OSSE_OK;
     struct ohttp_request *request = &conn->request;
+    struct ohttp_memio *io = NULL;
 
     char content_length[256];
     
@@ -100,7 +104,15 @@ oss_error_t oss_put_bucket_website(struct ohttp_connection *conn, const char *bu
         goto error;
     }
 
-    status = ohttp_request(conn, OMETHOD_PUT, bucket, NULL, oss_memin_create(xml, xml_size));
+    if (!(io = ohttp_memio_send_create(xml, xml_size))) {
+        ologe("failed to create memio for send");
+        status = OSSE_NO_MEMORY;
+        goto error;
+    }
+
+    ohttp_set_io(conn, (struct ohttp_io *) io);
+
+    status = ohttp_request(conn, OMETHOD_PUT, bucket, NULL);
     if (status != OSSE_OK) {
         ologe("failed to ohttp_request, status=%d", status);
         goto error;

@@ -1,5 +1,8 @@
 #include "util.h"
 
+#include <ctype.h>
+#include <stdlib.h>
+
 #define next_alloc(x) (((x)+16)*3/2)
 
 static
@@ -252,7 +255,7 @@ struct oss_buffer * oss_buffer_init(struct oss_buffer *buffer, int nreserve)
     return buffer;
 }
 
-static void *memdup(void *p, int size)
+static void *memdup(const void *p, int size)
 {
     void *dup = malloc(size);
     if (!dup)
@@ -263,7 +266,7 @@ static void *memdup(void *p, int size)
     return dup;
 }
 
-struct oss_buffer *oss_buffer_assign(struct oss_buffer *buffer, void *ptr, int size)
+struct oss_buffer *oss_buffer_assign(struct oss_buffer *buffer, const void *ptr, int size)
 {
     void *dup = memdup(ptr, size);
     if (!dup)

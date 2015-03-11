@@ -81,6 +81,8 @@ struct oss_buffer {
 struct oss_buffer * oss_buffer_init(struct oss_buffer *buffer, int nreserve);
 void oss_buffer_free(struct oss_buffer *buffer);
 
+struct oss_buffer *oss_buffer_assign(struct oss_buffer *buffer, const void *ptr, int size);
+
 void oss_buffer_detach(struct oss_buffer *buffer);
 char * oss_buffer_detach_as_string(struct oss_buffer *buffer);
 

@@ -71,7 +71,7 @@ size_t ohttp_curl_read_function(char *ptr, size_t size, size_t nmemb, void *ctx)
         if (n < 0)
             return CURL_READFUNC_ABORT;
         else
-            return n;
+            return (size_t)n;
     }
 
     return CURL_READFUNC_ABORT;
@@ -117,7 +117,7 @@ size_t ohttp_curl_write_function(char *ptr, size_t size, size_t nmemb, void *ctx
 
     if (response->status >= 200 && response->status < 300) {
         if (ohttp_conn_io_has(conn, on_recv_body))
-            return conn->io->on_recv_body(ptr, len, conn->io);
+            return (size_t) conn->io->on_recv_body(ptr, len, conn->io);
     }
 
     return len;
@@ -181,10 +181,23 @@ oss_error_t ohttp_response_init(struct ohttp_response *response)
 }
 
 
-/* TODO: MING: rename user_data to something meaningful and related to io */
-oss_i64 oss_memio_on_send_body(char *p, size_t len, void *user_data)
+void ohttp_io_free(struct ohttp_io *io)
 {
-    struct oss_memio *io = (struct oss_memio *) user_data;
+    if (io && io->free)
+        io->free(io);
+}
+
+void ohttp_memio_free(void *self)
+{
+    struct ohttp_memio *io = (struct ohttp_memio *) self;
+
+    oss_buffer_free(&io->send_buffer);
+    oss_buffer_free(&io->recv_buffer);
+}
+
+oss_i64 ohttp_memio_on_send_body(char *p, size_t len, void *self)
+{
+    struct ohttp_memio *io = (struct ohttp_memio *) self;
     int nr_send = -1;
     int nr_total = io->send_buffer.n;
 
@@ -196,7 +209,7 @@ oss_i64 oss_memio_on_send_body(char *p, size_t len, void *user_data)
     if (io->send_offset == nr_total)
         return 0;
 
-    if (io->send_offset + len > nr_total)
+    if (io->send_offset + (int) len > nr_total)
         nr_send = nr_total - io->send_offset;
     else
         nr_send = len;
@@ -207,9 +220,9 @@ oss_i64 oss_memio_on_send_body(char *p, size_t len, void *user_data)
     return nr_send;
 }
 
-oss_i64 oss_memio_on_recv_body(char *p, size_t len, void *user_data)
+oss_i64 ohttp_memio_on_recv_body(char *p, size_t len, void *self)
 {
-    struct oss_memio *io = (struct oss_memio *) user_data;
+    struct ohttp_memio *io = (struct ohttp_memio *) self;
     
     if (oss_buffer_append(&io->recv_buffer, p, len))
         return len;
@@ -217,9 +230,10 @@ oss_i64 oss_memio_on_recv_body(char *p, size_t len, void *user_data)
         return 0;
 }
 
-oss_error_t oss_memio_end_recv_body(void *user_data)
+oss_error_t ohttp_memio_end_recv_body(void *self)
 {
-    struct oss_memio *io = (struct oss_memio *) user_data;
+    struct ohttp_memio *io = (struct ohttp_memio *) self;
+    
     if (oss_buffer_append_zero(&io->recv_buffer))
         return OSSE_OK;
     else
@@ -227,9 +241,9 @@ oss_error_t oss_memio_end_recv_body(void *user_data)
 }
 
 /* the naming is wrong? */
-struct oss_io *oss_memin_create(const char *ptr, int size)
+struct ohttp_memio *ohttp_memio_send_create(const char *ptr, int size)
 {
-    struct oss_memio *io = calloc(1, sizeof(*io));
+    struct ohttp_memio *io = calloc(1, sizeof(*io));
     if (!io)
         return NULL;
 
@@ -238,24 +252,26 @@ struct oss_io *oss_memin_create(const char *ptr, int size)
         return NULL;
     }
     
-    io->super.on_send_body = &oss_memio_on_send_body;
+    io->super.on_send_body = &ohttp_memio_on_send_body;
+    io->super.free = &ohttp_memio_free;
 
-    return (struct oss_io *) io;
+    return io;
 }
 
-struct oss_io *oss_memout_create()
+struct ohttp_memio *ohttp_memio_recv_create()
 {
-    struct oss_memio *io = calloc(1, sizeof(*io));
+    struct ohttp_memio *io = calloc(1, sizeof(*io));
     if (!io)
         return NULL;
 
-    io->super.on_recv_body = &oss_memio_on_recv_body;
-    io->super.end_recv_bdoy = &oss_memio_end_recv_body;
+    io->super.on_recv_body = &ohttp_memio_on_recv_body;
+    io->super.end_recv_body = &ohttp_memio_end_recv_body;
+    io->super.free = &ohttp_memio_free;
 
-    return (struct oss_io *) io;
+    return io;
 }
 
-struct ohttp_connection * ohttp_connection_create(const char *region, const char *host, int port)
+struct ohttp_connection *ohttp_connection_create(const char *region, const char *host, int port)
 {
     struct ohttp_connection *conn = calloc(1, sizeof(*conn));
 
@@ -620,13 +636,12 @@ error:
 }
 
 /* TODO: MING: the end of this func is not confirmed to setup_curl ...  */
-oss_error_t ohttp_setup_curl(struct ohttp_connection *conn, enum ohttp_method method, struct oss_io *io)
+static
+oss_error_t ohttp_setup_curl(struct ohttp_connection *conn, enum ohttp_method method)
 {
     CURLcode curl_status;
     oss_error_t status = OSSE_UNKNOWN;
     
-    conn->io = io;
-
     x_easy_setopt(CURLOPT_NOPROGRESS, 1);
 
     x_easy_setopt(CURLOPT_FOLLOWLOCATION, 1);
@@ -676,8 +691,8 @@ oss_error_t ohttp_setup_curl(struct ohttp_connection *conn, enum ohttp_method me
 
     set_response_status(conn);
 
-    if (ohttp_conn_io_has(conn, end_recv_bdoy))
-        status = conn->io->end_recv_bdoy(conn->io);
+    if (ohttp_conn_io_has(conn, end_recv_body))
+        status = conn->io->end_recv_body(conn->io);
     
     return status;
 }
@@ -699,11 +714,16 @@ int is_http_success(int status)
     return status / 100 == 2;
 }
 
+void ohttp_set_io(struct ohttp_connection *conn, struct ohttp_io *io)
+{
+    ohttp_io_free(conn->io);
+    conn->io = io;
+}
+
 oss_error_t ohttp_request(struct ohttp_connection *conn, 
                           enum ohttp_method method,
                           const char *bucket,
-                          const char *object,
-                          struct oss_io *io)
+                          const char *object)
 {
     oss_error_t status;
     struct ohttp_request *request = &conn->request;
@@ -728,7 +748,7 @@ oss_error_t ohttp_request(struct ohttp_connection *conn,
         return status;
     }
 
-    if ((status = ohttp_setup_curl(conn, method, io)) != OSSE_OK) {
+    if ((status = ohttp_setup_curl(conn, method)) != OSSE_OK) {
         ologe("failed to setup curl");
         return status;
     }

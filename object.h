@@ -21,4 +21,14 @@ oss_error_t oss_delete_object(struct ohttp_connection *conn,
                               const char *bucket,
                               const char *object);
 
+oss_error_t init_upload(struct ohttp_connection *conn,
+                        const char *bucket,
+                        const char *object,
+                        char **upload_id);
+
+oss_error_t upload_part(struct ohttp_connection *conn,
+                        const char *bucket,
+                        const char *object,
+                        const char *upload_id,
+                        struct oss_io *io);
 #endif
