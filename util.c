@@ -50,6 +50,17 @@ int istarts_with(const char *str, const char *pat)
     return strncasecmp(str, pat, pat_len) ? 0 : 1;
 }
 
+int starts_with(const char *str, const char *pat)
+{
+    int str_len = strlen(str);
+    int pat_len = strlen(pat);
+
+    if (pat_len > str_len)
+        return 0;
+
+    return strncmp(str, pat, pat_len) ? 0 : 1;
+}
+
 
 /* if s_needs_url_encoding[c] is 1, c needs url encoding */
 const static unsigned char s_needs_url_encoding[] = {

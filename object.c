@@ -106,6 +106,50 @@ oss_error_t oss_get_object_to_file(struct ohttp_connection *conn,
     return status;
 }
 
+/* TODO: MING: avoid memcpy for input buffer? */
+oss_error_t oss_put_object_from_buffer(struct ohttp_connection *conn,
+                                       const char *bucket,
+                                       const char *object,
+                                       const void *buffer,
+                                       int length)
+{
+    oss_error_t status = OSSE_OK;
+    struct ohttp_memio *io = NULL;
+    char fsize_str[256];
+
+    snprintf(fsize_str, sizeof(fsize_str), "%d", length);
+
+    if (!oss_kvlist_append(&conn->request.headers, "Content-Length", fsize_str)) {
+        ologe("failed to append content-length");
+        status = OSSE_NO_MEMORY;
+        goto error;
+    }
+
+    /* disable chunked encoding. TODO: Perhaps we should disable it inside ohttp_request() */
+    if (!oss_kvlist_append(&conn->request.headers, "Transfer-Encoding", "")) {
+        ologe("failed to disable chunked encoding");
+        status = OSSE_NO_MEMORY;
+        goto error;
+    }
+
+    if (!(io = ohttp_memio_send_create(buffer, length))) {
+        ologe("failed to create memio for send");
+        status = OSSE_NO_MEMORY;
+        goto error;
+    }
+
+    ohttp_set_io(conn, (struct ohttp_io *) io);
+
+    status = ohttp_request(conn, OMETHOD_PUT, bucket, object);
+    if (status != OSSE_OK) {
+        ologe("failed to ohttp_request, status=%d", status);
+        goto error;
+    }
+
+error:
+    return status;
+}
+
 /* http://en.wikipedia.org/wiki/Large_file_support */
 oss_error_t oss_put_object_from_file(struct ohttp_connection *conn,
                                      const char *bucket,

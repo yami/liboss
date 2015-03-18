@@ -753,9 +753,9 @@ oss_error_t ohttp_request(struct ohttp_connection *conn,
         return status;
     }
 
-    if (!is_http_success(status)) {
-        ologd("http error: %d", status);
-        return status;
+    if (!is_http_success(conn->response.status)) {
+        ologd("http error: %d", conn->response.status);
+        return conn->response.status;
     }
 
     return OSSE_OK;

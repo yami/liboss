@@ -3,7 +3,6 @@
 #include "logging.h"
 
 #include <libxml/parser.h>
-#include <libxml/tree.h>
 
 #include <assert.h>
 
@@ -83,7 +82,6 @@ error:
     return (char *) xml;
 }
 
-static
 oss_error_t xml_get_doc_root(const char *buffer, int size, const char *root_name,
                              xmlDoc **pdoc, xmlNode **proot)
 {
@@ -153,13 +151,6 @@ int count_child_elements(xmlNode *buckets_node, const char *name)
     return n;
 }
 
-typedef oss_error_t (*parse_action_t) (char *value, void *user_data);
-
-struct parse_key_action {
-    const char *key;
-    parse_action_t action;
-    void *user_data;
-};
 
 #define MAX_NR_KEY_ACTION 1024
 

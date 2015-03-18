@@ -12,6 +12,12 @@ oss_error_t oss_get_object_to_file(struct ohttp_connection *conn,
                                    const char *object,
                                    const char *filename);
 
+oss_error_t oss_put_object_from_buffer(struct ohttp_connection *conn,
+                                       const char *bucket,
+                                       const char *object,
+                                       const void *buffer,
+                                       int length);
+
 oss_error_t oss_put_object_from_file(struct ohttp_connection *conn,
                                      const char *bucket,
                                      const char *object,

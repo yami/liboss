@@ -43,6 +43,7 @@ oss_i64 oss_fsize(FILE* fh);
 void str_tolower(char *str);
 char *str_duplower(const char *s);
 int istarts_with(const char *str, const char *pat);
+int starts_with(const char *str, const char *pat);
 char *url_encode(const void *str);
 
 /* data structures defined by this lib. */
