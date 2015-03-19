@@ -133,7 +133,7 @@ struct oss_kvlist * oss_kvlist_init(struct oss_kvlist *kvlist, int nreserve)
     if (nreserve <= 0)
         return kvlist;
     
-    ptr = malloc(nreserve * sizeof(struct oss_kv));
+    ptr = calloc(nreserve, sizeof(struct oss_kv));
     if (!ptr)
         return NULL;
 
@@ -142,6 +142,37 @@ struct oss_kvlist * oss_kvlist_init(struct oss_kvlist *kvlist, int nreserve)
     kvlist->nalloc = nreserve;
 
     return kvlist;
+}
+
+static
+void oss_kvlist_free_kv(struct oss_kvlist *kvlist)
+{
+    int i;
+    for (i = 0; i < kvlist->n; i++) {
+        struct oss_kv *kv = &kvlist->items[i];
+        free(kv->key);
+        free(kv->value);
+    }
+}
+
+void oss_kvlist_free(struct oss_kvlist *kvlist)
+{
+    if (!kvlist || kvlist->nalloc == 0)
+        return;
+
+    oss_kvlist_free_kv(kvlist);
+    free(kvlist->items);
+}
+
+void oss_kvlist_clear(struct oss_kvlist *kvlist)
+{
+    if (!kvlist || kvlist->nalloc == 0)
+        return;
+    
+    oss_kvlist_free_kv(kvlist);
+    
+    memset(kvlist->items, 0, kvlist->nalloc * sizeof(kvlist->items[0]));
+    kvlist->n = 0;
 }
 
 struct oss_kv * oss_kvlist_ifind(struct oss_kvlist *kvlist, const char *key)
@@ -296,6 +327,15 @@ void oss_buffer_free(struct oss_buffer *buffer)
 {
     free(buffer->data);
     oss_buffer_detach(buffer);
+}
+
+void oss_buffer_clear(struct oss_buffer *buffer)
+{
+    if (!buffer || buffer->nalloc == 0)
+        return;
+
+    memset(buffer->data, 0, buffer->nalloc);
+    buffer->n = 0;
 }
 
 void oss_buffer_detach(struct oss_buffer *buffer)

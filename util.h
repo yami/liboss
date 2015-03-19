@@ -62,6 +62,7 @@ struct oss_kvlist {
 #define OSS_KVLIST_INIT { NULL, 0, 0 }
 
 struct oss_kvlist * oss_kvlist_init(struct oss_kvlist *kvlist, int nreserve);
+void oss_kvlist_clear(struct oss_kvlist *kvlist);
 void oss_kvlist_free(struct oss_kvlist *kvlist);
 
 struct oss_kv * oss_kvlist_append(struct oss_kvlist *kvlist, const char *key, const char *value);
@@ -81,6 +82,7 @@ struct oss_buffer {
 
 struct oss_buffer * oss_buffer_init(struct oss_buffer *buffer, int nreserve);
 void oss_buffer_free(struct oss_buffer *buffer);
+void oss_buffer_clear(struct oss_buffer *buffer);
 
 struct oss_buffer *oss_buffer_assign(struct oss_buffer *buffer, const void *ptr, int size);
 

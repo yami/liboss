@@ -24,10 +24,15 @@ void test_PutObjectFromBuffer(void)
     struct ohttp_connection *conn = NULL;
 
     conn = ohttp_connection_create(config->region, config->host, config->port);
-    conn->cred.id = strdup(config->access_id);
-    conn->cred.key = strdup(config->access_key);
 
+    ohttp_set_credential(conn, config->access_id, config->access_key);
+    
     status = oss_put_object_from_buffer(conn, config->bucket, object, buffer, length);
+    TEST_ASSERT_EQUAL(OSSE_OK, status);
+
+    ohttp_connection_clear(conn);
+
+    status = oss_head_object(conn, config->bucket, object);
     TEST_ASSERT_EQUAL(OSSE_OK, status);
 }
 

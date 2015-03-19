@@ -17,6 +17,12 @@ const char* s_user_agent = "test";
         return OSS_CURLE(curl_status);                  \
     }
 
+static
+void pointer_clear(void **pptr)
+{
+    free(*pptr);
+    *pptr = NULL;
+}
 
 static
 void ohttp_header_to_kv(const char *buffer, size_t buflen, char **key, char **value)
@@ -167,6 +173,57 @@ oss_error_t ohttp_request_init(struct ohttp_request *request)
     return OSSE_OK;
 }
 
+void ohttp_request_free(struct ohttp_request *r)
+{
+    if (!r)
+        return;
+    
+    oss_kvlist_free(&r->queries);
+    oss_kvlist_free(&r->headers);
+
+    free(r->url);
+}
+
+void ohttp_request_clear(struct ohttp_request *r)
+{
+    if (!r)
+        return;
+    
+    r->method = OMETHOD_UNKNOWN;
+
+    oss_kvlist_clear(&r->queries);
+    oss_kvlist_clear(&r->headers);
+
+    pointer_clear(&r->url);
+}
+
+void ohttp_response_clear(struct ohttp_response *r)
+{
+    if (!r)
+        return;
+    
+    r->status = OSSE_UNKNOWN;
+    pointer_clear(&r->reqid);
+
+    oss_kvlist_clear(&r->headers);
+    oss_kvlist_clear(&r->edetails);
+
+    oss_buffer_clear(&r->ebody);
+}
+
+void ohttp_response_free(struct ohttp_response *r)
+{
+    if (!r)
+        return;
+
+    free(r->reqid);
+
+    oss_kvlist_free(&r->headers);
+    oss_kvlist_free(&r->edetails);
+
+    oss_buffer_free(&r->ebody);
+}
+
 oss_error_t ohttp_response_init(struct ohttp_response *response)
 {
     response->status = OSSE_UNKNOWN;
@@ -293,13 +350,27 @@ struct ohttp_connection *ohttp_connection_create(const char *region, const char 
     return conn;
 
 error:
-    ohttp_connection_free(conn);
+    ohttp_connection_free_all(conn);
     return NULL;
 }
 
-void ohttp_connection_free(struct ohttp_connection *conn)
+void ohttp_connection_free_all(struct ohttp_connection *conn)
 {
+    free(conn->region);
+    free(conn->host);
+    free(conn->cred.id);
+    free(conn->cred.key);
+
+    ohttp_request_free(&conn->request);
+    ohttp_response_free(&conn->response);
+
+    ohttp_io_free(conn->io);
+    
     curl_easy_cleanup(conn->curl);
+
+    curl_slist_free_all(conn->curl_headers);
+
+    free(conn);
 }
 
 oss_error_t ohttp_init()
@@ -720,6 +791,27 @@ void ohttp_set_io(struct ohttp_connection *conn, struct ohttp_io *io)
     conn->io = io;
 }
 
+oss_error_t ohttp_set_credential(struct ohttp_connection *conn, const char *access_id, const char *access_key)
+{
+    char *new_id = strdup(access_id);
+    char *new_key = strdup(access_key);
+
+    if (!new_id || !new_key) {
+        free(new_id);
+        free(new_key);
+        
+        return OSSE_NO_MEMORY;
+    }
+
+    free(conn->cred.id);
+    free(conn->cred.key);
+
+    conn->cred.id = new_id;
+    conn->cred.key = new_key;
+
+    return OSSE_OK;
+}
+
 oss_error_t ohttp_request(struct ohttp_connection *conn, 
                           enum ohttp_method method,
                           const char *bucket,
@@ -759,4 +851,15 @@ oss_error_t ohttp_request(struct ohttp_connection *conn,
     }
 
     return OSSE_OK;
+}
+
+void ohttp_connection_clear(struct ohttp_connection *conn)
+{
+    ohttp_request_clear(&conn->request);
+    ohttp_response_clear(&conn->response);
+
+    curl_easy_reset(conn->curl);
+    
+    curl_slist_free_all(conn->curl_headers);
+    conn->curl_headers = NULL;
 }
